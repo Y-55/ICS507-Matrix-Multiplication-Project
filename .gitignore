@@ -71,3 +71,7 @@ Testing/
 # Generated matrix multiplication outputs
 *-output-*.txt
 *-info-*.txt
+matrix_mult
+
+# Test Samples
+tests/*.txt
