@@ -47,10 +47,14 @@ MatrixInput readInputFile(const std::filesystem::path& inputPath) {
 std::filesystem::path makeOutputPath(
     const std::filesystem::path& outputDirectory,
     const std::string& inputStem,
-    std::size_t dimension,
     const std::string& kind,
-    const std::string& method) {
-    const std::string filename = inputStem + "-" + std::to_string(dimension) + "-" + kind + "-" + method + ".txt";
+    const std::string& method,
+    const std::string& parameterTag) {
+    std::string filename = inputStem + "-" + kind + "-" + method;
+    if (!parameterTag.empty()) {
+        filename += "-" + parameterTag;
+    }
+    filename += ".txt";
     return outputDirectory / filename;
 }
 
@@ -58,8 +62,9 @@ void writeMatrixFile(
     const std::filesystem::path& outputDirectory,
     const std::string& inputStem,
     const std::string& method,
+    const std::string& parameterTag,
     const Matrix& matrix) {
-    const auto outputPath = makeOutputPath(outputDirectory, inputStem, matrix.size(), "output", method);
+    const auto outputPath = makeOutputPath(outputDirectory, inputStem, "output", method, parameterTag);
     std::ofstream output(outputPath);
     if (!output) {
         throw std::runtime_error("failed to open output file: " + outputPath.string());
@@ -80,11 +85,12 @@ void writeMatrixFile(
 void writeInfoFile(
     const std::filesystem::path& outputDirectory,
     const std::string& inputStem,
-    std::size_t dimension,
     const std::string& method,
     const std::string& formattedTime,
-    int coresUsed) {
-    const auto outputPath = makeOutputPath(outputDirectory, inputStem, dimension, "info", method);
+    int coresUsed,
+    const std::string& parameterTag,
+    const std::vector<std::string>& metadataLines) {
+    const auto outputPath = makeOutputPath(outputDirectory, inputStem, "info", method, parameterTag);
     std::ofstream output(outputPath, std::ios::app);
     if (!output) {
         throw std::runtime_error("failed to open info file: " + outputPath.string());
@@ -92,5 +98,8 @@ void writeInfoFile(
 
     output << formattedTime << '\n';
     output << coresUsed << '\n';
+    for (const std::string& metadataLine : metadataLines) {
+        output << metadataLine << '\n';
+    }
     output << "---\n";
 }
