@@ -7,8 +7,7 @@ This directory documents how to build, run, and divide the Phase II work for the
 From the repository root:
 
 ```sh
-cmake -S . -B build
-cmake --build build
+./scripts/build.sh
 ```
 
 The executable is created at `build/matrix_mult`.
