@@ -17,6 +17,8 @@ namespace {
 
 struct MethodRun {
     std::string name;
+    std::string parameterTag;
+    std::vector<std::string> metadataLines;
     std::function<Matrix()> multiply;
 };
 
@@ -50,8 +52,15 @@ Matrix runTimedMethod(
     Matrix result = method.multiply();
     const auto elapsed = timer.elapsed();
 
-    writeMatrixFile(outputDirectory, input.stem, method.name, result);
-    writeInfoFile(outputDirectory, input.stem, result.size(), method.name, formatDuration(elapsed), coresUsed);
+    writeMatrixFile(outputDirectory, input.stem, method.name, method.parameterTag, result);
+    writeInfoFile(
+        outputDirectory,
+        input.stem,
+        method.name,
+        formatDuration(elapsed),
+        coresUsed,
+        method.parameterTag,
+        method.metadataLines);
 
     std::cout << method.name << " completed in " << formatDuration(elapsed)
               << " using " << coresUsed << " core(s)\n";
@@ -87,10 +96,31 @@ int main(int argc, char* argv[]) {
         const std::filesystem::path outputDirectory = std::filesystem::current_path();
 
         std::vector<MethodRun> methods = {
-            {"Sequential", [&]() { return multiplySequential(input.a, input.b); }},
-            {"ParMtrixMult", [&]() { return multiplyParMatrixMult(input.a, input.b, threads); }},
-            {"Strassen", [&]() { return multiplyStrassen(input.a, input.b, strassenBaseCase); }},
-            {"ParStrassen", [&]() { return multiplyParStrassen(input.a, input.b, strassenBaseCase, threads); }},
+            {"Sequential", "", {}, [&]() { return multiplySequential(input.a, input.b); }},
+            {
+                "ParMtrixMult",
+                "threads-" + std::to_string(threads),
+                {"threads: " + std::to_string(threads)},
+                [&]() { return multiplyParMatrixMult(input.a, input.b, threads); },
+            },
+            {
+                "Strassen",
+                "threads-" + std::to_string(threads) + "-basecase-" + std::to_string(strassenBaseCase),
+                {
+                    "threads: " + std::to_string(threads),
+                    "basecase: " + std::to_string(strassenBaseCase),
+                },
+                [&]() { return multiplyStrassen(input.a, input.b, strassenBaseCase); },
+            },
+            {
+                "ParStrassen",
+                "threads-" + std::to_string(threads) + "-basecase-" + std::to_string(strassenBaseCase),
+                {
+                    "threads: " + std::to_string(threads),
+                    "basecase: " + std::to_string(strassenBaseCase),
+                },
+                [&]() { return multiplyParStrassen(input.a, input.b, strassenBaseCase, threads); },
+            },
         };
 
         bool ranAnyMethod = false;
