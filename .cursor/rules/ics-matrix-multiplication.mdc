@@ -1,0 +1,40 @@
+---
+description: Project conventions for ICS 507 matrix multiplication work
+alwaysApply: true
+---
+
+# ICS 507 Matrix Multiplication Project Rule
+
+Follow these project-specific conventions when assisting in this repository:
+
+- Build with `./scripts/build.sh` (preferred and default).
+- Do not invoke `g++` manually unless the user explicitly asks or the build script fails.
+- Generate tests with `python3 scripts/generate_input.py <n>` (optional flags: `--output`, `--seed`, `--min`, `--max`).
+- Run with:
+  `./build/matrix_mult <input-file> [threads] [strassen-base-case] [mode]`
+- Respect positional CLI arguments:
+  1) `input-file`, 2) `threads`, 3) `strassen-base-case`, 4) `mode`.
+- If setting `mode`, always include `threads` and `strassen-base-case` first.
+- Valid `mode` values are exactly:
+  `all`, `Sequential`, `ParMtrixMult`, `Strassen`, `ParStrassen`.
+
+Preserve algorithm API signatures:
+
+```cpp
+Matrix multiplySequential(const Matrix& a, const Matrix& b);
+Matrix multiplyParMatrixMult(const Matrix& a, const Matrix& b, int threads);
+Matrix multiplyStrassen(const Matrix& a, const Matrix& b, int baseCase);
+Matrix multiplyParStrassen(const Matrix& a, const Matrix& b, int baseCase, int threads);
+```
+
+Treat these as coordination-sensitive files; avoid changing them unless the task explicitly requires it:
+
+- `src/matrix.hpp`
+- `src/matrix.cpp`
+- `src/io.hpp`
+- `src/io.cpp`
+- `src/algorithms.hpp`
+- `src/main.cpp`
+
+When running experiments or documenting results, keep reporting aligned with project expectations:
+machine specs, tested matrix sizes, tested thread counts, tested Strassen base cases, runtime tables, correctness vs sequential baseline, and observed performance differences.
