@@ -17,11 +17,14 @@ def parse_args() -> argparse.Namespace:
         description="Generate two random n by n matrices in the assignment input format."
     )
     parser.add_argument("dimension", type=int, help="matrix dimension n; must be a power of 2")
-    parser.add_argument("output", type=Path, help="output text file path")
+    parser.add_argument("--output", type=Path, default=None, help="output text file path")
     parser.add_argument("--seed", type=int, default=None, help="random seed for reproducible files")
     parser.add_argument("--min", dest="min_value", type=int, default=-9, help="minimum matrix value")
     parser.add_argument("--max", dest="max_value", type=int, default=9, help="maximum matrix value")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.output is None:
+        args.output = Path(f"tests/input_{args.dimension}.txt")
+    return args
 
 
 def generate_matrix(dimension: int, min_value: int, max_value: int) -> list[list[int]]:

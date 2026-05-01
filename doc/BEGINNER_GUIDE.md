@@ -33,15 +33,13 @@ This means:
 Install these tools:
 
 - A C++ compiler, such as `clang++` or `g++`.
-- CMake.
 - OpenMP.
 - Python 3 for generating test input files.
 
-Build with CMake:
+Build with the project script:
 
 ```sh
-cmake -S . -B build
-cmake --build build
+./scripts/build.sh
 ```
 
 Run:
@@ -50,16 +48,7 @@ Run:
 ./build/matrix_mult tests/sample_2.txt 4 2 all
 ```
 
-If CMake is not installed yet, you can still do a temporary direct compile for testing:
-
-```sh
-clang++ -std=c++17 -Wall -Wextra -pedantic -Isrc \
-  src/main.cpp src/matrix.cpp src/io.cpp src/sequential.cpp \
-  src/par_matrix_mult.cpp src/strassen.cpp src/par_strassen.cpp \
-  -o build/matrix_mult
-```
-
-For the final submission, prefer the CMake build because it is cleaner and handles OpenMP linking.
+The build script handles OpenMP flags and outputs `build/matrix_mult`.
 
 ## Python vs C++ Basics
 
@@ -86,13 +75,12 @@ The reason for this split is that multiple `.cpp` files can include the same `.h
 
 ## Files Created
 
-### Build File
+### Build Script
 
-- `CMakeLists.txt`
-  - Defines the C++ project.
-  - Enables C++17.
-  - Finds OpenMP.
-  - Builds the executable named `matrix_mult`.
+- `scripts/build.sh`
+  - Compiles the project using C++17.
+  - Adds OpenMP flags.
+  - Builds the executable named `matrix_mult` under `build/`.
 
 ### Shared C++ Files
 
