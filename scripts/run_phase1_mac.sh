@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 1 (macOS): Fixed base case (16), vary dimension and thread count.
+# Phase 1 (macOS): Fixed base case (4), vary dimension and thread count.
 # Runs all 4 algorithms in order: Sequential, Strassen, ParMtrixMult, ParStrassen.
 
 set -euo pipefail
