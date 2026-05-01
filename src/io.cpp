@@ -66,7 +66,8 @@ void writeMatrixFile(
     const std::string& method,
     const std::string& parameterTag,
     const Matrix& matrix) {
-    const auto outputPath = makeOutputPath(outputDirectory, inputStem, "output", method, parameterTag);
+    (void)parameterTag;
+    const auto outputPath = makeOutputPath(outputDirectory, inputStem, "output", method, "");
     if (std::filesystem::exists(outputPath)) {
         return;
     }
