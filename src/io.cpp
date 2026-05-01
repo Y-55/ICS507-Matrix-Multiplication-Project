@@ -1,5 +1,7 @@
 #include "io.hpp"
 
+#include <array>
+#include <cstdio>
 #include <fstream>
 #include <stdexcept>
 
@@ -65,20 +67,48 @@ void writeMatrixFile(
     const std::string& parameterTag,
     const Matrix& matrix) {
     const auto outputPath = makeOutputPath(outputDirectory, inputStem, "output", method, parameterTag);
-    std::ofstream output(outputPath);
-    if (!output) {
+    if (std::filesystem::exists(outputPath)) {
+        return;
+    }
+    std::filebuf fileBuffer;
+    std::array<char, 1 << 22> streamBuffer{};
+    fileBuffer.pubsetbuf(streamBuffer.data(), static_cast<std::streamsize>(streamBuffer.size()));
+    if (!fileBuffer.open(outputPath, std::ios::out | std::ios::trunc)) {
         throw std::runtime_error("failed to open output file: " + outputPath.string());
     }
+    std::ostream output(&fileBuffer);
 
     const std::size_t n = matrix.size();
+    const auto& values = matrix.values();
+
+    std::string chunk;
+    chunk.reserve(1 << 22);
+
     for (std::size_t row = 0; row < n; ++row) {
+        const std::size_t rowOffset = row * n;
         for (std::size_t column = 0; column < n; ++column) {
             if (column > 0) {
-                output << ' ';
+                chunk.push_back(' ');
             }
-            output << matrix(row, column);
+
+            char numberBuffer[32];
+            const long value = values[rowOffset + column];
+            const int printed = std::snprintf(numberBuffer, sizeof(numberBuffer), "%ld", value);
+            if (printed < 0 || printed >= static_cast<int>(sizeof(numberBuffer))) {
+                throw std::runtime_error("failed to format matrix value for output");
+            }
+            chunk.append(numberBuffer, static_cast<std::size_t>(printed));
         }
-        output << '\n';
+        chunk.push_back('\n');
+
+        if (chunk.size() >= (1 << 22)) {
+            output.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+            chunk.clear();
+        }
+    }
+
+    if (!chunk.empty()) {
+        output.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
     }
 }
 
@@ -90,7 +120,8 @@ void writeInfoFile(
     int coresUsed,
     const std::string& parameterTag,
     const std::vector<std::string>& metadataLines) {
-    const auto outputPath = makeOutputPath(outputDirectory, inputStem, "info", method, parameterTag);
+    (void)parameterTag;
+    const auto outputPath = makeOutputPath(outputDirectory, inputStem, "info", method, "");
     std::ofstream output(outputPath, std::ios::app);
     if (!output) {
         throw std::runtime_error("failed to open info file: " + outputPath.string());
