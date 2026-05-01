@@ -85,11 +85,12 @@ void writeInfoFile(
     const std::string& formattedTime,
     int coresUsed) {
     const auto outputPath = makeOutputPath(outputDirectory, inputStem, dimension, "info", method);
-    std::ofstream output(outputPath);
+    std::ofstream output(outputPath, std::ios::app);
     if (!output) {
         throw std::runtime_error("failed to open info file: " + outputPath.string());
     }
 
     output << formattedTime << '\n';
     output << coresUsed << '\n';
+    output << "---\n";
 }
