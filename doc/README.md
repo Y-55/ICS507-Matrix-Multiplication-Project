@@ -2,65 +2,99 @@
 
 This directory documents how to build, run, and divide the Phase II work for the C++ OpenMP implementation.
 
-## Build
+## Commands
 
-From the repository root:
+### Build
 
 ```sh
 ./scripts/build.sh
 ```
 
-The executable is created at `build/matrix_mult`.
+### Generate Input Files
 
-## Run
+Generate a default input file at `tests/input_<n>.txt`:
+
+```sh
+python3 scripts/generate_input.py 1024
+```
+
+Generate with custom output path and fixed seed:
+
+```sh
+python3 scripts/generate_input.py 1024 --output tests/input_custom_1024.txt --seed 507
+```
+
+Generate with custom value range:
+
+```sh
+python3 scripts/generate_input.py 1024 --min -5 --max 5
+```
+
+### Run Program
 
 ```sh
 ./build/matrix_mult <input-file> [threads] [strassen-base-case] [mode]
 ```
 
-Arguments:
+Argument order is required:
 
-- `input-file`: text file containing `n`, then matrix `A`, then matrix `B`.
-- `threads`: OpenMP thread count. Defaults to the maximum available thread count.
-- `strassen-base-case`: dimension threshold for switching Strassen to the baseline multiplication. Defaults to `64`.
-- `mode`: one of `all`, `Sequential`, `ParMtrixMult`, `Strassen`, or `ParStrassen`. Defaults to `all`.
+1. `input-file`
+2. `threads` (default: max available threads)
+3. `strassen-base-case` (default: `64`)
+4. `mode` (default: `all`)
 
-Example:
+Valid `mode` values:
+
+- `all`
+- `Sequential`
+- `ParMtrixMult`
+- `Strassen`
+- `ParStrassen`
+
+Run all methods with explicit values:
 
 ```sh
-./build/matrix_mult tests/sample_2.txt 4 2 all
+./build/matrix_mult tests/input_1024.txt 8 64 all
 ```
 
-## Input Format
+Run only Sequential:
 
-The first line is the matrix dimension `n`. The project assumes `n` is a power of 2. The next `2n^2` values are long integers in row-major order:
-
-```text
-n
-A values
-B values
+```sh
+./build/matrix_mult tests/input_1024.txt 8 64 Sequential
 ```
 
-## Output Files
+Run only parallel direct multiplication:
 
-For an input file named `input1.txt` with `n = 128`, the program writes:
+```sh
+./build/matrix_mult tests/input_1024.txt 8 64 ParMtrixMult
+```
 
-- `input1-128-output-Sequential.txt`
-- `input1-128-info-Sequential.txt`
-- `input1-128-output-ParMtrixMult.txt`
-- `input1-128-info-ParMtrixMult.txt`
-- `input1-128-output-Strassen.txt`
-- `input1-128-info-Strassen.txt`
-- `input1-128-output-ParStrassen.txt`
-- `input1-128-info-ParStrassen.txt`
+Run only Strassen:
 
-Each output file contains the resulting matrix. Each info file contains the multiplication-only elapsed time in `hh:mm:ss` format followed by the number of cores used.
+```sh
+./build/matrix_mult tests/input_1024.txt 8 64 Strassen
+```
 
-## Contributor Ownership
+Run only parallel Strassen:
 
-| Contributor | Responsibility | Main Files |
-| --- | --- | --- |
-| 1 | Sequential and ParMatrixMult implementation | `src/sequential.cpp`, `src/par_matrix_mult.cpp` |
+```sh
+./build/matrix_mult tests/input_1024.txt 8 64 ParStrassen
+```
+
+Use defaults for optional arguments:
+
+```sh
+./build/matrix_mult tests/input_1024.txt
+```
+
+Run one specific mode with an explicit base case:
+
+```sh
+./build/matrix_mult tests/input_1024.txt 8 64 ParMtrixMult
+```
+
+If you want to pass `mode`, you must also provide `threads` and `strassen-base-case` first because the CLI is positional.
+ |
 | 2 | Sequential and parallel Strassen implementation | `src/strassen.cpp`, `src/par_strassen.cpp` |
 | 3 | Documentation, experiments, report, and presentation notes | `doc/README.md`, report tables, experiment logs |
 
