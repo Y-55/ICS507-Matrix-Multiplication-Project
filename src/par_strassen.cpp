@@ -7,11 +7,10 @@
 
 namespace {
 
-// PARALLELIZED ADD: Uses all cores for the O(n^2) work
+// Keep these simple; we want the parallelism at the Task level, not here.
 Matrix add(const Matrix& a, const Matrix& b) {
     const std::size_t n = a.size();
     Matrix result(n);
-    #pragma omp parallel for collapse(2) if(n > 256)
     for (std::size_t i = 0; i < n; ++i) {
         for (std::size_t j = 0; j < n; ++j) {
             result(i, j) = a(i, j) + b(i, j);
@@ -20,11 +19,9 @@ Matrix add(const Matrix& a, const Matrix& b) {
     return result;
 }
 
-// PARALLELIZED SUB: Uses all cores for the O(n^2) work
 Matrix sub(const Matrix& a, const Matrix& b) {
     const std::size_t n = a.size();
     Matrix result(n);
-    #pragma omp parallel for collapse(2) if(n > 256)
     for (std::size_t i = 0; i < n; ++i) {
         for (std::size_t j = 0; j < n; ++j) {
             result(i, j) = a(i, j) - b(i, j);
@@ -33,11 +30,9 @@ Matrix sub(const Matrix& a, const Matrix& b) {
     return result;
 }
 
-// PARALLELIZED EXTRACTION: Faster memory copying
 Matrix extractQuadrant(const Matrix& src, std::size_t rowOff, std::size_t colOff) {
     const std::size_t half = src.size() / 2;
     Matrix result(half);
-    #pragma omp parallel for if(half > 256)
     for (std::size_t i = 0; i < half; ++i) {
         for (std::size_t j = 0; j < half; ++j) {
             result(i, j) = src(rowOff + i, colOff + j);
@@ -49,14 +44,14 @@ Matrix extractQuadrant(const Matrix& src, std::size_t rowOff, std::size_t colOff
 Matrix parStrassenRecursive(const Matrix& a, const Matrix& b, int baseCase, int depth) {
     const std::size_t n = a.size();
 
+    // Base Case: Fall back to sequential GEMM
     if (n <= static_cast<std::size_t>(baseCase)) {
         return multiplySequential(a, b);
     }
 
     const std::size_t half = n / 2;
 
-    // These steps are O(n^2). If we don't parallelize the helpers above,
-    // this part stays sequential and kills performance.
+    // Sub-matrix extraction
     const Matrix a11 = extractQuadrant(a, 0,    0);
     const Matrix a12 = extractQuadrant(a, 0,    half);
     const Matrix a21 = extractQuadrant(a, half, 0);
@@ -67,6 +62,7 @@ Matrix parStrassenRecursive(const Matrix& a, const Matrix& b, int baseCase, int 
     const Matrix b21 = extractQuadrant(b, half, 0);
     const Matrix b22 = extractQuadrant(b, half, half);
 
+    // Pre-calculations for M1-M7
     const Matrix s1 = add(a11, a22);  const Matrix t1 = add(b11, b22);
     const Matrix s2 = add(a21, a22);
     const Matrix t3 = sub(b12, b22);
@@ -78,22 +74,23 @@ Matrix parStrassenRecursive(const Matrix& a, const Matrix& b, int baseCase, int 
     Matrix m1, m2, m3, m4, m5, m6, m7;
 
 #ifdef _OPENMP
-    // Only use Tasks for the high-level recursion to avoid overhead
     if (depth > 0) {
-        #pragma omp task shared(m1)
+        // Use firstprivate to ensure the sub-matrices are captured by the task
+        #pragma omp task shared(m1) firstprivate(s1, t1, baseCase, depth)
         m1 = parStrassenRecursive(s1,  t1,  baseCase, depth - 1);
-        #pragma omp task shared(m2)
+        #pragma omp task shared(m2) firstprivate(s2, b11, baseCase, depth)
         m2 = parStrassenRecursive(s2,  b11, baseCase, depth - 1);
-        #pragma omp task shared(m3)
+        #pragma omp task shared(m3) firstprivate(a11, t3, baseCase, depth)
         m3 = parStrassenRecursive(a11, t3,  baseCase, depth - 1);
-        #pragma omp task shared(m4)
+        #pragma omp task shared(m4) firstprivate(a22, t4, baseCase, depth)
         m4 = parStrassenRecursive(a22, t4,  baseCase, depth - 1);
-        #pragma omp task shared(m5)
+        #pragma omp task shared(m5) firstprivate(s5, b22, baseCase, depth)
         m5 = parStrassenRecursive(s5,  b22, baseCase, depth - 1);
-        #pragma omp task shared(m6)
+        #pragma omp task shared(m6) firstprivate(s6, t6, baseCase, depth)
         m6 = parStrassenRecursive(s6,  t6,  baseCase, depth - 1);
-        #pragma omp task shared(m7)
+        #pragma omp task shared(m7) firstprivate(s7, t7, baseCase, depth)
         m7 = parStrassenRecursive(s7,  t7,  baseCase, depth - 1);
+        
         #pragma omp taskwait
     } else {
 #endif
@@ -109,8 +106,8 @@ Matrix parStrassenRecursive(const Matrix& a, const Matrix& b, int baseCase, int 
 #endif
 
     Matrix c(n);
-    // Parallelize the final reconstruction
-    #pragma omp parallel for collapse(2) if(half > 256)
+    // Use a basic parallel for here ONLY at the top levels to merge final results
+    #pragma omp parallel for collapse(2) if(n > 1024)
     for (std::size_t i = 0; i < half; ++i) {
         for (std::size_t j = 0; j < half; ++j) {
             c(i,        j)        = m1(i,j) + m4(i,j) - m5(i,j) + m7(i,j);
@@ -127,20 +124,20 @@ Matrix parStrassenRecursive(const Matrix& a, const Matrix& b, int baseCase, int 
 Matrix multiplyParStrassen(const Matrix& a, const Matrix& b, int baseCase, int threads) {
     if (a.size() != b.size()) throw std::invalid_argument("Dimension mismatch");
 
-    // Task depth: stop creating tasks when we have enough to saturate cores.
-    int depth = 0;
-    int taskCount = 1;
-    while (taskCount < threads) {
-        taskCount *= 7;
-        depth++;
-    }
+    // Increased depth to 3 for 16-core systems
+    int depth = (threads > 1) ? 3 : 0; 
 
     Matrix result;
 #ifdef _OPENMP
+    // This is critical for Tasking performance
+    omp_set_nested(1);
+    
     #pragma omp parallel num_threads(threads)
     {
-        #pragma omp single
-        result = parStrassenRecursive(a, b, baseCase, depth);
+        #pragma omp single nowait
+        {
+            result = parStrassenRecursive(a, b, baseCase, depth);
+        }
     }
 #else
     result = parStrassenRecursive(a, b, baseCase, 0);
