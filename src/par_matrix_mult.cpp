@@ -6,7 +6,13 @@
 #error "OpenMP is required to build this project. Rebuild with OpenMP enabled (e.g., -fopenmp)."
 #endif
 
-long dotproduct(const long i[], const long j[], std::size_t size) {
+#if defined(__GNUC__) || defined(__clang__)
+#define RESTRICT __restrict__
+#else
+#define RESTRICT
+#endif
+
+long dotproduct(const long* RESTRICT i, const long* RESTRICT j, std::size_t size) {
     if (size == 0) {
         return 0;
     }
@@ -29,6 +35,9 @@ long dotproduct(const long i[], const long j[], std::size_t size) {
     // - reduction(+:sum): each SIMD lane accumulates privately, then lanes are combined safely.
     // We keep this helper SIMD-only and parallelize at the (i, j) matrix level to avoid creating
     // a new thread team for every single output cell.
+    // RESTRICT tells the compiler these input pointers do not alias each other.
+    // That removes a conservative dependency assumption and helps generate better SIMD code
+    // while preserving the exact same reduction logic and result.
     #pragma omp simd reduction(+:sum)
     for (std::size_t l = 0; l < size; ++l) {
         sum += i[l] * j[l];
@@ -48,6 +57,12 @@ Matrix multiplyParMatrixMult(const Matrix& a, const Matrix& b, int threads) {
     const std::size_t n = a.size();
     Matrix c(n);
     Matrix bt(n);
+    // Cache raw pointers once so we avoid repeated function calls/indexing helpers in hot loops.
+    // This keeps the exact algorithm intact, but lowers per-element overhead.
+    const long* aValues = a.values().data();
+    const long* bValues = b.values().data();
+    long* btValues = bt.values().data();
+    long* cValues = c.values().data();
 
     // Build B^T once so each original column of B becomes a contiguous row in bt.
     // This lets dotproduct read contiguous memory from both inputs.
@@ -59,17 +74,19 @@ Matrix multiplyParMatrixMult(const Matrix& a, const Matrix& b, int threads) {
     #pragma omp parallel for collapse(2) schedule(static) num_threads(threads)
     for (std::size_t row = 0; row < n; ++row) {
         for (std::size_t col = 0; col < n; ++col) {
-            bt(col, row) = b(row, col);
+            btValues[col * n + row] = bValues[row * n + col];
         }
     }
 
-    // Same pragma choices for computing C: each (i, j) cell has similar work, so static scheduling
-    // with a collapsed 2D loop gives low overhead and good distribution across threads.
-    #pragma omp parallel for collapse(2) schedule(static) num_threads(threads)
+    // Parallelize by row (outer i) only: each thread reuses its current A row and writes one C row
+    // contiguously, which improves cache locality and avoids extra overhead from flattening both loops.
+    #pragma omp parallel for schedule(static) num_threads(threads)
     for (std::size_t i = 0; i < n; ++i) {
+        const long* aRow = aValues + i * n;
+        long* cRow = cValues + i * n;
         for (std::size_t j = 0; j < n; ++j) {
             // Row i of A starts at i * n. Row j of bt equals column j of original B.
-            c(i, j) = dotproduct(a.values().data() + i * n, bt.values().data() + j * n, n);
+            cRow[j] = dotproduct(aRow, btValues + j * n, n);
         }
     }
 
