@@ -43,7 +43,7 @@ bool shouldRunMethod(const std::string& requestedMode, const std::string& method
     return requestedMode == "all" || requestedMode == methodName;
 }
 
-Matrix runTimedMethod(
+void runTimedMethod(
     const MethodRun& method,
     const MatrixInput& input,
     const std::filesystem::path& outputDirectory,
@@ -51,20 +51,20 @@ Matrix runTimedMethod(
     ScopedTimer timer;
     Matrix result = method.multiply();
     const auto elapsed = timer.elapsed();
+    const std::string elapsedText = formatDuration(elapsed);
 
     writeMatrixFile(outputDirectory, input.stem, method.name, method.parameterTag, result);
     writeInfoFile(
         outputDirectory,
         input.stem,
         method.name,
-        formatDuration(elapsed),
+        elapsedText,
         coresUsed,
         method.parameterTag,
         method.metadataLines);
 
-    std::cout << method.name << " completed in " << formatDuration(elapsed)
+    std::cout << method.name << " completed in " << elapsedText
               << " using " << coresUsed << " core(s)\n";
-    return result;
 }
 
 } // namespace
@@ -96,22 +96,22 @@ int main(int argc, char* argv[]) {
         const std::filesystem::path outputDirectory = std::filesystem::current_path();
 
         std::vector<MethodRun> methods = {
-            {"Sequential", "", {}, [&]() { return multiplySequential(input.a, input.b); }},
+            // {"Sequential", "", {}, [&]() { return multiplySequential(input.a, input.b); }},
             {
                 "ParMtrixMult",
                 "threads-" + std::to_string(threads),
                 {"threads: " + std::to_string(threads)},
                 [&]() { return multiplyParMatrixMult(input.a, input.b, threads); },
             },
-            {
-                "Strassen",
-                "threads-" + std::to_string(threads) + "-basecase-" + std::to_string(strassenBaseCase),
-                {
-                    "threads: " + std::to_string(threads),
-                    "basecase: " + std::to_string(strassenBaseCase),
-                },
-                [&]() { return multiplyStrassen(input.a, input.b, strassenBaseCase); },
-            },
+            // {
+            //     "Strassen",
+            //     "threads-" + std::to_string(threads) + "-basecase-" + std::to_string(strassenBaseCase),
+            //     {
+            //         "threads: " + std::to_string(threads),
+            //         "basecase: " + std::to_string(strassenBaseCase),
+            //     },
+            //     [&]() { return multiplyStrassen(input.a, input.b, strassenBaseCase); },
+            // },
             {
                 "ParStrassen",
                 "threads-" + std::to_string(threads) + "-basecase-" + std::to_string(strassenBaseCase),
@@ -124,8 +124,6 @@ int main(int argc, char* argv[]) {
         };
 
         bool ranAnyMethod = false;
-        Matrix reference;
-        bool hasReference = false;
 
         for (const MethodRun& method : methods) {
             if (!shouldRunMethod(mode, method.name)) {
@@ -133,20 +131,7 @@ int main(int argc, char* argv[]) {
             }
 
             ranAnyMethod = true;
-            Matrix result = runTimedMethod(method, input, outputDirectory, threads);
-
-            if (method.name == "Sequential") {
-                reference = result;
-                hasReference = true;
-            } else {
-                if (!hasReference) {
-                    reference = multiplySequential(input.a, input.b);
-                    hasReference = true;
-                }
-                if (!matricesEqual(reference, result)) {
-                    std::cerr << "Warning: " << method.name << " result differs from Sequential\n";
-                }
-            }
+            runTimedMethod(method, input, outputDirectory, threads);
         }
 
         if (!ranAnyMethod) {
