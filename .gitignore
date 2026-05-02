@@ -67,3 +67,5 @@ matrix_mult
 
 # Test Samples
 tests/*.txt
+*run_base*
+*run_analysis*

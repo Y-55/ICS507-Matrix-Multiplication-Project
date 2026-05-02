@@ -8,10 +8,10 @@ set -euo pipefail
 BINARY="./matrix_mult"
 TESTS_DIR="tests"
 SCRIPT_DIR="scripts"
-BASE_CASE=4
+BASE_CASE=128
 SEED=42
 THREAD_COUNTS=(1 2 4 6 8)
-DIMENSIONS=(32 64 128 256 512 1024 2048 4096)
+DIMENSIONS=(32 64 128 256 512 1024 2048 4096 8192)
 
 if [[ ! -x "$BINARY" ]]; then
     echo "Error: $BINARY not found. Build first with:"
