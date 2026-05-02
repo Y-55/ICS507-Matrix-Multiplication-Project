@@ -96,22 +96,22 @@ int main(int argc, char* argv[]) {
         const std::filesystem::path outputDirectory = std::filesystem::current_path();
 
         std::vector<MethodRun> methods = {
-            // {"Sequential", "", {}, [&]() { return multiplySequential(input.a, input.b); }},
+            {"Sequential", "", {}, [&]() { return multiplySequential(input.a, input.b); }},
             {
                 "ParMtrixMult",
                 "threads-" + std::to_string(threads),
                 {"threads: " + std::to_string(threads)},
                 [&]() { return multiplyParMatrixMult(input.a, input.b, threads); },
             },
-            // {
-            //     "Strassen",
-            //     "threads-" + std::to_string(threads) + "-basecase-" + std::to_string(strassenBaseCase),
-            //     {
-            //         "threads: " + std::to_string(threads),
-            //         "basecase: " + std::to_string(strassenBaseCase),
-            //     },
-            //     [&]() { return multiplyStrassen(input.a, input.b, strassenBaseCase); },
-            // },
+            {
+                 "Strassen",
+                 "threads-" + std::to_string(threads) + "-basecase-" + std::to_string(strassenBaseCase),
+                 {
+                     "threads: " + std::to_string(threads),
+                     "basecase: " + std::to_string(strassenBaseCase),
+                 },
+                 [&]() { return multiplyStrassen(input.a, input.b, strassenBaseCase); },
+            },
             {
                 "ParStrassen",
                 "threads-" + std::to_string(threads) + "-basecase-" + std::to_string(strassenBaseCase),
