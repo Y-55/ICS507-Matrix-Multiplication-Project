@@ -15,6 +15,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -97,6 +98,7 @@ class RunRecord:
     stderr_log: str
     mismatch_warning: bool
     timed_out: bool
+    wall_clock_seconds: float | None
 
 
 @dataclass
@@ -646,15 +648,8 @@ def write_assignment_input(
         write_matrix_rows(output_file, matrix_b)
 
 
-def stem_for_run(
-    algorithm: str,
-    matrix_size: int,
-    threads: int,
-    base_case: int,
-    run_index: int,
-) -> str:
-    normalized_name = algorithm.lower()
-    return f"exp_n{matrix_size}_{normalized_name}_t{threads}_b{base_case}_r{run_index}"
+def input_stem_for_size(matrix_size: int) -> str:
+    return f"input_{matrix_size}"
 
 
 def read_info_file(info_path: Path) -> tuple[str, int, float]:
@@ -702,13 +697,30 @@ def command_for_run(
 
 
 def parameter_tag_for_run(algorithm: str, threads: int, base_case: int) -> str:
-    if algorithm == "Sequential":
-        return ""
+    parts: list[str] = []
     if algorithm == "ParMtrixMult":
-        return f"threads-{threads}"
-    if algorithm in {"Strassen", "ParStrassen"}:
-        return f"threads-{threads}-basecase-{base_case}"
-    return ""
+        parts.append(f"threads-{threads}")
+    elif algorithm == "Strassen":
+        parts.append(f"basecase-{base_case}")
+    elif algorithm == "ParStrassen":
+        parts.append(f"threads-{threads}")
+        parts.append(f"basecase-{base_case}")
+    return "-".join(parts)
+
+
+def artifact_suffix_for_run(
+    algorithm: str,
+    threads: int,
+    base_case: int,
+    run_index: int,
+    total_runs: int,
+) -> str:
+    parameter_tag = parameter_tag_for_run(algorithm, threads, base_case)
+    if total_runs > 1:
+        if parameter_tag:
+            return f"{parameter_tag}-run-{run_index}"
+        return f"run-{run_index}"
+    return parameter_tag
 
 
 def run_algorithm(
@@ -721,19 +733,35 @@ def run_algorithm(
     threads: int,
     base_case: int,
     run_index: int,
+    total_runs: int,
     seed: int,
     timeout_seconds: int,
 ) -> RunRecord:
     command = command_for_run(executable, input_path, threads, base_case, algorithm)
     parameter_tag = parameter_tag_for_run(algorithm, threads, base_case)
-    output_matrix_name = f"{input_path.stem}-output-{algorithm}"
-    if parameter_tag:
-        output_matrix_name += f"-{parameter_tag}"
-    output_matrix_file = repo_root / f"{output_matrix_name}.txt"
-    info_file = repo_root / f"{input_path.stem}-info-{algorithm}.txt"
-    stdout_log = results_dir / f"{input_path.stem}-{algorithm}-stdout.log"
-    stderr_log = results_dir / f"{input_path.stem}-{algorithm}-stderr.log"
+    artifact_suffix = artifact_suffix_for_run(algorithm, threads, base_case, run_index, total_runs)
 
+    generated_output_name = f"{input_path.stem}-output-{algorithm}"
+    generated_info_name = f"{input_path.stem}-info-{algorithm}"
+    if parameter_tag:
+        generated_output_name += f"-{parameter_tag}"
+        generated_info_name += f"-{parameter_tag}"
+    generated_output_file = repo_root / f"{generated_output_name}.txt"
+    generated_info_file = repo_root / f"{generated_info_name}.txt"
+
+    output_matrix_name = f"{input_path.stem}-output-{algorithm}"
+    info_name = f"{input_path.stem}-info-{algorithm}"
+    log_name = f"{input_path.stem}-{algorithm}"
+    if artifact_suffix:
+        output_matrix_name += f"-{artifact_suffix}"
+        info_name += f"-{artifact_suffix}"
+        log_name += f"-{artifact_suffix}"
+    output_matrix_file = repo_root / f"{output_matrix_name}.txt"
+    info_file = repo_root / f"{info_name}.txt"
+    stdout_log = results_dir / f"{log_name}-stdout.log"
+    stderr_log = results_dir / f"{log_name}-stderr.log"
+
+    started_at = time.perf_counter()
     try:
         completed = subprocess.run(
             command,
@@ -744,6 +772,7 @@ def run_algorithm(
             check=False,
         )
     except subprocess.TimeoutExpired as error:
+        elapsed = time.perf_counter() - started_at
         stdout_log.write_text(error.stdout or "", encoding="utf-8")
         stderr_log.write_text(error.stderr or "", encoding="utf-8")
         return RunRecord(
@@ -764,8 +793,10 @@ def run_algorithm(
             stderr_log=relative_to(stderr_log, repo_root),
             mismatch_warning="Warning:" in (error.stderr or ""),
             timed_out=True,
+            wall_clock_seconds=round(elapsed, 3),
         )
 
+    elapsed = time.perf_counter() - started_at
     stdout_log.write_text(completed.stdout, encoding="utf-8")
     stderr_log.write_text(completed.stderr, encoding="utf-8")
     mismatch_warning = "Warning:" in completed.stderr
@@ -789,7 +820,17 @@ def run_algorithm(
             stderr_log=relative_to(stderr_log, repo_root),
             mismatch_warning=mismatch_warning,
             timed_out=False,
+            wall_clock_seconds=round(elapsed, 3),
         )
+
+    if total_runs > 1:
+        if generated_output_file.exists():
+            generated_output_file.replace(output_matrix_file)
+        if generated_info_file.exists():
+            generated_info_file.replace(info_file)
+    else:
+        output_matrix_file = generated_output_file
+        info_file = generated_info_file
 
     if not info_file.exists():
         return RunRecord(
@@ -810,6 +851,7 @@ def run_algorithm(
             stderr_log=relative_to(stderr_log, repo_root),
             mismatch_warning=mismatch_warning,
             timed_out=False,
+            wall_clock_seconds=round(elapsed, 3),
         )
 
     formatted_time, reported_cores, runtime_seconds = read_info_file(info_file)
@@ -831,7 +873,18 @@ def run_algorithm(
         stderr_log=relative_to(stderr_log, repo_root),
         mismatch_warning=mismatch_warning,
         timed_out=False,
+        wall_clock_seconds=round(elapsed, 3),
     )
+
+
+def count_size_configurations(matrix_size: int, configs: dict[str, AlgorithmRunConfig]) -> int:
+    total = 0
+    for algorithm_name in ALGORITHMS:
+        config = configs[algorithm_name]
+        if not config.enabled or matrix_size not in config.matrix_sizes:
+            continue
+        total += config.repetitions * len(config.base_cases) * len(config.threads)
+    return total
 
 
 def write_csv(path: Path, fieldnames: list[str], rows: Iterable[dict[str, object]]) -> None:
@@ -889,6 +942,44 @@ def algorithm_slug(name: str) -> str:
     return name.lower()
 
 
+def select_baseline_row(
+    rows: list[dict[str, object]],
+    algorithm: str,
+    matrix_size: int,
+    comparison_base_case: int,
+) -> dict[str, object] | None:
+    candidates = [
+        row for row in rows
+        if row["algorithm"] == algorithm and int(row["matrix_size"]) == matrix_size
+    ]
+    if not candidates:
+        return None
+
+    preferred = [
+        row for row in candidates
+        if int(row["base_case"]) == comparison_base_case
+    ]
+    pool = preferred if preferred else candidates
+    return min(pool, key=lambda row: (int(row["threads"]), int(row["base_case"])))
+
+
+def select_row_for_base_case(
+    rows: list[dict[str, object]],
+    algorithm: str,
+    matrix_size: int,
+    base_case: int,
+) -> dict[str, object] | None:
+    candidates = [
+        row for row in rows
+        if row["algorithm"] == algorithm
+        and int(row["matrix_size"]) == matrix_size
+        and int(row["base_case"]) == base_case
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda row: int(row["threads"]))
+
+
 def build_plot_specs(
     aggregated_rows: list[dict[str, object]],
     comparison_base_case: int,
@@ -905,14 +996,15 @@ def build_plot_specs(
         points = []
         for size in sizes:
             if algorithm == "Sequential":
-                key = (algorithm, size, 1, comparison_base_case)
+                row = select_baseline_row(aggregated_rows, algorithm, size, comparison_base_case)
             elif algorithm == "ParMtrixMult":
                 best_threads = best_parallel_thread(aggregated_rows, algorithm, size)
                 if best_threads is None:
                     continue
                 key = (algorithm, size, best_threads, comparison_base_case)
+                row = lookup.get(key)
             elif algorithm == "Strassen":
-                key = (algorithm, size, 1, comparison_base_case)
+                row = select_baseline_row(aggregated_rows, algorithm, size, comparison_base_case)
             else:
                 best_threads = best_parallel_thread(
                     [
@@ -925,7 +1017,7 @@ def build_plot_specs(
                 if best_threads is None:
                     continue
                 key = (algorithm, size, best_threads, comparison_base_case)
-            row = lookup.get(key)
+                row = lookup.get(key)
             if row is not None:
                 points.append((size, float(row["avg_runtime_seconds"])))
         if points:
@@ -944,7 +1036,7 @@ def build_plot_specs(
 
     pm_speedup = {}
     for size in sizes:
-        seq = lookup.get(("Sequential", size, 1, comparison_base_case))
+        seq = select_baseline_row(aggregated_rows, "Sequential", size, comparison_base_case)
         if seq is None:
             continue
         series_points = []
@@ -971,7 +1063,7 @@ def build_plot_specs(
 
     ps_speedup = {}
     for size in sizes:
-        base_row = lookup.get(("Strassen", size, 1, comparison_base_case))
+        base_row = select_baseline_row(aggregated_rows, "Strassen", size, comparison_base_case)
         if base_row is None:
             continue
         series_points = []
@@ -1000,7 +1092,7 @@ def build_plot_specs(
     for size in sizes:
         points = []
         for base_case in base_cases:
-            row = lookup.get(("Strassen", size, 1, base_case))
+            row = select_row_for_base_case(aggregated_rows, "Strassen", size, base_case)
             if row is not None:
                 points.append((base_case, float(row["avg_runtime_seconds"])))
         if points:
@@ -1047,7 +1139,7 @@ def build_plot_specs(
 
     efficiency = {}
     for size in sizes:
-        seq = lookup.get(("Sequential", size, 1, comparison_base_case))
+        seq = select_baseline_row(aggregated_rows, "Sequential", size, comparison_base_case)
         if seq is not None:
             points = []
             for thread in threads:
@@ -1061,7 +1153,7 @@ def build_plot_specs(
             if points:
                 efficiency[f"ParMtrixMult n={size}"] = points
 
-        strassen = lookup.get(("Strassen", size, 1, comparison_base_case))
+        strassen = select_baseline_row(aggregated_rows, "Strassen", size, comparison_base_case)
         if strassen is not None:
             points = []
             for thread in threads:
@@ -1452,7 +1544,21 @@ def run_experiments(args: argparse.Namespace) -> int:
             continue
 
         print(f"\n=== Matrix size n={matrix_size} ===")
+        total_configs_for_size = count_size_configurations(matrix_size, configs)
+        print(f"Planned configurations for n={matrix_size}: {total_configs_for_size}")
         size_failed = False
+        completed_configs_for_size = 0
+        input_stem = input_stem_for_size(matrix_size)
+        input_path = input_dir / f"{input_stem}.txt"
+        input_seed = derive_seed(args.seed, matrix_size, 1)
+        if not input_path.exists():
+            write_assignment_input(
+                input_path,
+                matrix_size,
+                input_seed,
+                args.min_value,
+                args.max_value,
+            )
 
         try:
             stop_current_size = False
@@ -1462,26 +1568,13 @@ def run_experiments(args: argparse.Namespace) -> int:
                     continue
 
                 for run_index in range(1, config.repetitions + 1):
-                    seed = derive_seed(args.seed, matrix_size, run_index)
+                    seed = input_seed
                     for base_case in config.base_cases:
                         for thread in config.threads:
-                            input_stem = stem_for_run(
-                                algorithm_name,
-                                matrix_size,
-                                thread,
-                                base_case,
-                                run_index,
-                            )
-                            input_path = input_dir / f"{input_stem}.txt"
-                            write_assignment_input(
-                                input_path,
-                                matrix_size,
-                                seed,
-                                args.min_value,
-                                args.max_value,
-                            )
+                            completed_configs_for_size += 1
                             print(
-                                f"Running {algorithm_name} for n={matrix_size}, "
+                                f"[{completed_configs_for_size}/{total_configs_for_size}] "
+                                f"Starting {algorithm_name} for n={matrix_size}, "
                                 f"t={thread}, b={base_case}, run={run_index}"
                             )
                             record = run_algorithm(
@@ -1494,10 +1587,28 @@ def run_experiments(args: argparse.Namespace) -> int:
                                 thread,
                                 base_case,
                                 run_index,
+                                config.repetitions,
                                 seed,
                                 args.timeout_seconds,
                             )
                             records.append(record)
+                            runtime_note = (
+                                f", runtime={record.runtime_seconds:.3f}s"
+                                if record.runtime_seconds is not None
+                                else ""
+                            )
+                            wall_clock_note = (
+                                f", wall={record.wall_clock_seconds:.3f}s"
+                                if record.wall_clock_seconds is not None
+                                else ""
+                            )
+                            print(
+                                f"[{completed_configs_for_size}/{total_configs_for_size}] "
+                                f"Finished {algorithm_name} for n={matrix_size}, "
+                                f"t={thread}, b={base_case}, run={run_index}: "
+                                f"status={record.status}{runtime_note}{wall_clock_note}"
+                            )
+                            print("Refreshing CSV/plots...")
                             refresh_experiment_artifacts(records, results_dir, plots_dir, args, configs)
                             if record.status != "ok":
                                 size_failed = True
@@ -1517,7 +1628,12 @@ def run_experiments(args: argparse.Namespace) -> int:
 
         if size_failed and not args.keep_going_after_size_failure:
             size_failure_cutoff = matrix_size
+            print(
+                f"Stopping larger sizes because n={matrix_size} failed. "
+                "Use --keep-going-after-size-failure to continue anyway."
+            )
 
+    print("Refreshing CSV/plots...")
     refresh_experiment_artifacts(records, results_dir, plots_dir, args, configs)
 
     raw_results_path = results_dir / "raw_results.csv"
